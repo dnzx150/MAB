@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <title>MAB Laptop Dashboard - Optimized</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { background: #f0f2f5; font-family: 'Segoe UI', sans-serif; }
+        .laptop-card { transition: 0.3s; border: none; border-radius: 12px; }
+        .laptop-card:hover { transform: translateY(-5px); box-shadow: 0 10px 20px rgba(0,0,0,0.1); }
+    </style>
+</head>
+<body class="p-4">
+<div class="container">
+    <h2 class="fw-bold text-primary mb-4">🚀 Hệ thống Gợi ý MAB (NumPy Optimized)</h2>
+
+    <div class="card p-3 mb-4 shadow-sm border-0">
+        <label class="fw-bold mb-2 text-secondary">🎯 CHỌN NHU CẦU NGƯỜI DÙNG (PROFILE):</label>
+        <div class="d-flex gap-3">
+            <select id="profile-select" class="form-select w-auto">
+                <option value="default">Học từ đầu (Mặc định)</option>
+                <option value="student">Học sinh - Sinh viên</option>
+                <option value="office">Văn phòng</option>
+                <option value="gaming">Gaming & Đồ họa</option>
+            </select>
+            <div id="status-badge" class="badge bg-primary d-flex align-items-center px-3">Hệ thống sẵn sàng</div>
+        </div>
+    </div>
+
+    <div class="mb-4 d-flex gap-2">
+        <button onclick="selectAlgo('eg')" class="btn btn-outline-primary" id="btn-eg">ε-Greedy</button>
+        <button onclick="selectAlgo('ucb')" class="btn btn-outline-warning" id="btn-ucb">UCB1</button>
+        <button onclick="handleMainAction()" class="btn btn-success px-4 fw-bold">START</button>
+        <button onclick="resetAll()" class="btn btn-danger">RESET</button>
+    </div>
+
+    <div class="row mb-4">
+        <div class="col-md-6"><canvas id="chart-eg"></canvas></div>
+        <div class="col-md-6"><canvas id="chart-ucb"></canvas></div>
+    </div>
+
+    <div id="laptop-list" class="row"></div>
+</div>
+
+<script>
+let chartEg, chartUcb, currentAlgo = "eg", isStarted = false;
+
+function initCharts() {
+    const commonOpt = { responsive: true, scales: { y: { beginAtZero: true } } };
+    chartEg = new Chart(document.getElementById('chart-eg'), {
+        type: 'line', data: { labels: [0], datasets: [{ label: 'Likes (ε-Greedy)', data: [0], borderColor: '#0d6efd' }] }, options: commonOpt
+    });
+    chartUcb = new Chart(document.getElementById('chart-ucb'), {
+        type: 'line', data: { labels: [0], datasets: [{ label: 'Likes (UCB1)', data: [0], borderColor: '#ffc107' }] }, options: commonOpt
+    });
+}
+
+async function selectAlgo(algo) {
+    currentAlgo = algo;
+    const profile = document.getElementById('profile-select').value;
+    await fetch('/switch-algo', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({algo, profile})
+    });
+    document.getElementById('status-badge').innerText = `Algorithm: ${algo.toUpperCase()} | Profile: ${profile}`;
+}
+
+function handleMainAction() {
+    if (!isStarted) { initCharts(); isStarted = true; document.getElementById('profile-select').disabled = true; }
+    getRecommendations();
+}
+
+async function getRecommendations() {
+    const res = await fetch('/get-recommendations', {method:'POST'});
+    const data = await res.json();
+    document.getElementById('laptop-list').innerHTML = data.map(x => `
+        <div class="col-md-4 mb-3">
+            <div class="card laptop-card p-3 shadow-sm text-center">
+                <h5 class="fw-bold">${x.name}</h5>
+                <div class="d-grid gap-2">
+                    <button onclick="sendFeedback(${x.id},1)" class="btn btn-success btn-sm">👍 Like</button>
+                    <button onclick="sendFeedback(${x.id},0)" class="btn btn-outline-danger btn-sm">👎 Dislike</button>
+                </div>
+            </div>
+        </div>
+    `).join('');
+}
+
+async function sendFeedback(id, reward) {
+    await fetch('/feedback', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({laptop_id: id, reward})
+    });
+    const stats = await (await fetch('/api/stats')).json();
+    
+    chartEg.data.labels = stats.eg.steps;
+    chartEg.data.datasets[0].data = stats.eg.likes;
+    chartEg.update('none');
+
+    chartUcb.data.labels = stats.ucb.steps;
+    chartUcb.data.datasets[0].data = stats.ucb.likes;
+    chartUcb.update('none');
+    
+    getRecommendations();
+}
+
+async function resetAll() {
+    if(confirm("Xóa dữ liệu NumPy In-memory?")) {
+        await fetch('/reset', {method:'POST'});
+        location.reload(); 
+    }
+}
+</script>
+</body>
+</html>
