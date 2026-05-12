@@ -28,11 +28,21 @@
         </div>
     </div>
 
-    <div class="mb-4 d-flex gap-2">
+    <div class="mb-4 d-flex gap-2 flex-wrap">
         <button onclick="selectAlgo('eg')" class="btn btn-outline-primary" id="btn-eg">ε-Greedy</button>
         <button onclick="selectAlgo('ucb')" class="btn btn-outline-warning" id="btn-ucb">UCB1</button>
-        <button onclick="handleMainAction()" class="btn btn-success px-4 fw-bold">START</button>
-        <button onclick="resetAll()" class="btn btn-danger">RESET</button>
+        <button onclick="handleMainAction()" class="btn btn-success px-4 fw-bold">▶ START</button>
+        <button onclick="loadDemo()" class="btn btn-outline-secondary" title="Nạp sẵn 20 lượt tương tác mô phỏng người dùng Gaming">📊 Tải Demo</button>
+        <button onclick="resetAll()" class="btn btn-danger">↺ RESET</button>
+    </div>
+
+    <!-- Bảng tóm tắt demo — ẩn mặc định, hiện sau khi tải demo -->
+    <div id="demo-summary" class="card border-0 shadow-sm mb-4 p-3" style="display:none;">
+        <div class="d-flex align-items-center gap-2 mb-2">
+            <span class="badge bg-secondary">📊 Demo Data</span>
+            <span class="fw-semibold text-secondary small">Mô phỏng 20 lượt tương tác — người dùng thích Gaming</span>
+        </div>
+        <div id="demo-table"></div>
     </div>
 
     <div class="row mb-4">
@@ -45,6 +55,13 @@
 
 <script>
 let chartEg, chartUcb, currentAlgo = "eg", isStarted = false;
+
+// Auto-load demo nếu URL có ?autoload=demo (dùng để chụp màn hình tự động)
+window.addEventListener('DOMContentLoaded', () => {
+    if (new URLSearchParams(window.location.search).get('autoload') === 'demo') {
+        setTimeout(loadDemo, 800);
+    }
+});
 
 function initCharts() {
     const commonOpt = { responsive: true, scales: { y: { beginAtZero: true } } };
@@ -72,16 +89,47 @@ function handleMainAction() {
     getRecommendations();
 }
 
+const CATEGORY_BADGE = {
+    'Gaming':          'bg-danger',
+    'Office':          'bg-primary',
+    'Student':         'bg-success',
+    'Student / Office':'bg-info text-dark',
+};
+
+function categoryBadge(cat) {
+    const cls = CATEGORY_BADGE[cat] || 'bg-secondary';
+    return `<span class="badge ${cls} mb-2">${cat}</span>`;
+}
+
 async function getRecommendations() {
-    const res = await fetch('/get-recommendations', {method:'POST'});
+    const res = await fetch('/get-recommendations', {method: 'POST'});
     const data = await res.json();
     document.getElementById('laptop-list').innerHTML = data.map(x => `
         <div class="col-md-4 mb-3">
-            <div class="card laptop-card p-3 shadow-sm text-center">
-                <h5 class="fw-bold">${x.name}</h5>
-                <div class="d-grid gap-2">
-                    <button onclick="sendFeedback(${x.id},1)" class="btn btn-success btn-sm">👍 Like</button>
-                    <button onclick="sendFeedback(${x.id},0)" class="btn btn-outline-danger btn-sm">👎 Dislike</button>
+            <div class="card laptop-card shadow-sm h-100">
+                <div class="card-body d-flex flex-column">
+                    <div class="d-flex justify-content-between align-items-start mb-1">
+                        ${categoryBadge(x.category || x.tags?.[0] || '')}
+                        <small class="text-muted fw-semibold">${x.price || ''}</small>
+                    </div>
+                    <h5 class="card-title fw-bold mb-2">${x.name}</h5>
+                    <ul class="list-unstyled small text-secondary mb-3 flex-grow-1">
+                        <li><strong>CPU:</strong> ${x.cpu || '—'}</li>
+                        <li><strong>RAM:</strong> ${x.ram || '—'}</li>
+                        <li><strong>GPU:</strong> ${x.gpu || '—'}</li>
+                    </ul>
+                    <div class="d-grid gap-2">
+                        <button
+                            onclick="sendFeedback(${x.id}, 1)"
+                            class="btn btn-success btn-sm fw-semibold">
+                            👍 Like — Phù hợp với tôi
+                        </button>
+                        <button
+                            onclick="sendFeedback(${x.id}, 0)"
+                            class="btn btn-outline-danger btn-sm">
+                            👎 Dislike — Không phù hợp
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -89,12 +137,13 @@ async function getRecommendations() {
 }
 
 async function sendFeedback(id, reward) {
+    if (!isStarted) return; // bảo vệ khi chart chưa được khởi tạo
     await fetch('/feedback', {
         method: 'POST', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({laptop_id: id, reward})
     });
     const stats = await (await fetch('/api/stats')).json();
-    
+
     chartEg.data.labels = stats.eg.steps;
     chartEg.data.datasets[0].data = stats.eg.likes;
     chartEg.update('none');
@@ -102,15 +151,76 @@ async function sendFeedback(id, reward) {
     chartUcb.data.labels = stats.ucb.steps;
     chartUcb.data.datasets[0].data = stats.ucb.likes;
     chartUcb.update('none');
-    
+
+    getRecommendations();
+}
+
+async function loadDemo() {
+    const res  = await fetch('/load-demo', {method: 'POST'});
+    const data = await res.json();
+
+    // Khởi tạo chart nếu chưa có
+    if (!isStarted) { initCharts(); isStarted = true; }
+    document.getElementById('profile-select').disabled = true;
+
+    // Cập nhật cả 2 biểu đồ từ lịch sử demo
+    const stats = await (await fetch('/api/stats')).json();
+    chartEg.data.labels           = stats.eg.steps;
+    chartEg.data.datasets[0].data = stats.eg.likes;
+    chartEg.update('none');
+    chartUcb.data.labels           = stats.ucb.steps;
+    chartUcb.data.datasets[0].data = stats.ucb.likes;
+    chartUcb.update('none');
+
+    // Hiển thị bảng tóm tắt
+    const rateBar = (r) => {
+        const pct  = Math.round(r * 100);
+        const cls  = pct >= 60 ? 'bg-success' : pct >= 30 ? 'bg-warning' : 'bg-danger';
+        return `<div class="progress" style="height:18px;min-width:80px">
+                  <div class="progress-bar ${cls}" style="width:${pct}%" title="${pct}%">${pct}%</div>
+                </div>`;
+    };
+    const rows = data.summary.map(s => `
+        <tr>
+            <td class="fw-semibold">${s.name}</td>
+            <td><span class="badge bg-secondary">${s.category}</span></td>
+            <td class="text-success fw-bold">👍 ${s.likes}</td>
+            <td class="text-danger">${s.total - s.likes}</td>
+            <td>${s.total}</td>
+            <td>${rateBar(s.rate)}</td>
+        </tr>`).join('');
+    document.getElementById('demo-table').innerHTML = `
+        <table class="table table-sm table-bordered mb-0 small">
+            <thead class="table-light">
+                <tr><th>Laptop</th><th>Phân khúc</th><th>Like</th><th>Dislike</th><th>Tổng</th><th>Tỉ lệ Like</th></tr>
+            </thead>
+            <tbody>${rows}</tbody>
+        </table>`;
+    document.getElementById('demo-summary').style.display = 'block';
+    document.getElementById('status-badge').innerText =
+        `Demo: ${data.interactions} lượt tương tác đã nạp`;
+
+    // Lấy gợi ý dựa trên dữ liệu đã học
     getRecommendations();
 }
 
 async function resetAll() {
-    if(confirm("Xóa dữ liệu NumPy In-memory?")) {
-        await fetch('/reset', {method:'POST'});
-        location.reload(); 
-    }
+    if (!confirm("Xóa dữ liệu NumPy In-memory và reset biểu đồ?")) return;
+    await fetch('/reset', {method: 'POST'});
+
+    // Reset charts inline — không reload trang, giữ nguyên trạng thái UI
+    [chartEg, chartUcb].forEach(chart => {
+        if (!chart) return;
+        chart.data.labels = [0];
+        chart.data.datasets[0].data = [0];
+        chart.update('none');
+    });
+
+    document.getElementById('laptop-list').innerHTML = '';
+    document.getElementById('demo-summary').style.display = 'none';
+    isStarted = false;
+    document.getElementById('profile-select').disabled = false;
+    document.getElementById('status-badge').innerText = 'Hệ thống sẵn sàng';
 }
 </script>
 </body>
